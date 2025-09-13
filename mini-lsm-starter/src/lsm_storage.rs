@@ -18,8 +18,8 @@
 use std::collections::HashMap;
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -317,12 +317,28 @@ impl LsmStorageInner {
 
     /// Put a key-value pair into the storage by writing into the current memtable.
     pub fn put(&self, _key: &[u8], _value: &[u8]) -> Result<()> {
-        self.state.read().memtable.put(_key, _value)
+        let guard = self.state_lock.lock();
+        self.state.read().memtable.put(_key, _value)?;
+        
+        // Check if memtable exceeds target size
+        if self.state.read().memtable.approximate_size() >= self.options.target_sst_size {
+            self.force_freeze_memtable(&guard)?;
+        }
+        
+        Ok(())
     }
 
     /// Remove a key from the storage by writing an empty value.
     pub fn delete(&self, _key: &[u8]) -> Result<()> {
-        self.state.read().memtable.put(_key, b"")
+        let guard = self.state_lock.lock();
+        self.state.read().memtable.put(_key, b"")?;
+        
+        // Check if memtable exceeds target size
+        if self.state.read().memtable.approximate_size() >= self.options.target_sst_size {
+            self.force_freeze_memtable(&guard)?;
+        }
+        
+        Ok(())
     }
 
     pub(crate) fn path_of_sst_static(path: impl AsRef<Path>, id: usize) -> PathBuf {
@@ -347,7 +363,19 @@ impl LsmStorageInner {
 
     /// Force freeze the current memtable to an immutable memtable
     pub fn force_freeze_memtable(&self, _state_lock_observer: &MutexGuard<'_, ()>) -> Result<()> {
-        unimplemented!()
+        let mut guard = self.state.write();
+        let mut snapshot = guard.as_ref().clone();
+
+        let old_memtable = std::mem::replace(
+            &mut snapshot.memtable,
+            Arc::new(MemTable::create(self.next_sst_id())),
+        );
+        snapshot.imm_memtables.insert(0, old_memtable);
+        *guard = Arc::new(snapshot);
+
+        drop(guard);
+
+        Ok(())
     }
 
     /// Force flush the earliest-created immutable memtable to disk
