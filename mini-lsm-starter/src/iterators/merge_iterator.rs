@@ -15,10 +15,9 @@
 #![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
 #![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
 
+use anyhow::Result;
 use std::cmp::{self};
 use std::collections::BinaryHeap;
-
-use anyhow::Result;
 
 use crate::key::KeySlice;
 
@@ -59,7 +58,34 @@ pub struct MergeIterator<I: StorageIterator> {
 
 impl<I: StorageIterator> MergeIterator<I> {
     pub fn create(iters: Vec<Box<I>>) -> Self {
-        unimplemented!()
+        if iters.is_empty() {
+            return Self {
+                iters: BinaryHeap::new(),
+                current: None,
+            };
+        }
+
+        let mut heap = BinaryHeap::new();
+
+        if iters.iter().all(|iter| !iter.is_valid()) {
+            let mut iters = iters;
+            return Self {
+                iters: heap,
+                current: Some(HeapWrapper(0, iters.pop().unwrap())),
+            };
+        }
+
+        for (i, iter) in iters.into_iter().enumerate() {
+            if iter.is_valid() {
+                heap.push(HeapWrapper(i, iter));
+            }
+        }
+
+        let current = heap.pop().unwrap();
+        Self {
+            iters: heap,
+            current: Some(current),
+        }
     }
 }
 
@@ -69,15 +95,18 @@ impl<I: 'static + for<'a> StorageIterator<KeyType<'a> = KeySlice<'a>>> StorageIt
     type KeyType<'a> = KeySlice<'a>;
 
     fn key(&self) -> KeySlice {
-        unimplemented!()
+        self.current.as_ref().unwrap().1.key()
     }
 
     fn value(&self) -> &[u8] {
-        unimplemented!()
+        self.current.as_ref().unwrap().1.value()
     }
 
     fn is_valid(&self) -> bool {
-        unimplemented!()
+        self.current
+            .as_ref()
+            .map(|x| x.1.is_valid())
+            .unwrap_or(false)
     }
 
     fn next(&mut self) -> Result<()> {
