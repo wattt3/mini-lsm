@@ -17,6 +17,7 @@
 
 use anyhow::Result;
 use std::cmp::{self};
+use std::collections::binary_heap::PeekMut;
 use std::collections::BinaryHeap;
 
 use crate::key::KeySlice;
@@ -110,6 +111,39 @@ impl<I: 'static + for<'a> StorageIterator<KeyType<'a> = KeySlice<'a>>> StorageIt
     }
 
     fn next(&mut self) -> Result<()> {
-        unimplemented!()
+        let current = self.current.as_mut().unwrap();
+
+        while let Some(mut iter) = self.iters.peek_mut() {
+            if iter.1.key() == current.1.key() {
+                if let e @ Err(_) = iter.1.next() {
+                    PeekMut::pop(iter);
+                    return e;
+                }
+
+                // Case 2: iter is no longer valid.
+                if !iter.1.is_valid() {
+                    PeekMut::pop(iter);
+                }
+            } else {
+                break;
+            }
+        }
+
+        current.1.next()?;
+
+        if !current.1.is_valid() {
+            if let Some(iter) = self.iters.pop() {
+                *current = iter;
+            }
+            return Ok(());
+        }
+
+        if let Some(mut inner_iter) = self.iters.peek_mut() {
+            if *current < *inner_iter {
+                std::mem::swap(&mut *inner_iter, current);
+            }
+        }
+
+        Ok(())
     }
 }
