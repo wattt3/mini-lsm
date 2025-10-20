@@ -31,7 +31,12 @@ pub struct LsmIterator {
 
 impl LsmIterator {
     pub(crate) fn new(iter: LsmIteratorInner) -> Result<Self> {
-        Ok(Self { inner: iter })
+        let mut lsm_iter = Self { inner: iter };
+        // Skip initial empty values (deleted keys)
+        while lsm_iter.is_valid() && lsm_iter.value().is_empty() {
+            lsm_iter.inner.next()?;
+        }
+        Ok(lsm_iter)
     }
 }
 
@@ -39,19 +44,24 @@ impl StorageIterator for LsmIterator {
     type KeyType<'a> = &'a [u8];
 
     fn is_valid(&self) -> bool {
-        unimplemented!()
+        self.inner.is_valid()
     }
 
     fn key(&self) -> &[u8] {
-        unimplemented!()
+        self.inner.key().raw_ref()
     }
 
     fn value(&self) -> &[u8] {
-        unimplemented!()
+        self.inner.value()
     }
 
     fn next(&mut self) -> Result<()> {
-        unimplemented!()
+        self.inner.next()?;
+        // Skip empty values (deleted keys)
+        while self.is_valid() && self.value().is_empty() {
+            self.inner.next()?;
+        }
+        Ok(())
     }
 }
 
