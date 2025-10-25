@@ -19,7 +19,7 @@ mod builder;
 mod iterator;
 
 pub use builder::BlockBuilder;
-use bytes::Bytes;
+use bytes::{Buf, BufMut, Bytes};
 pub use iterator::BlockIterator;
 
 pub(crate) const SIZE_OF_U16: usize = size_of::<u16>();
@@ -31,14 +31,30 @@ pub struct Block {
 }
 
 impl Block {
-    /// Encode the internal data to the data layout illustrated in the course
-    /// Note: You may want to recheck if any of the expected field is missing from your output
+    // data + offset + the number of elements
     pub fn encode(&self) -> Bytes {
-        unimplemented!()
+        let mut buf = self.data.clone();
+        for &offset in &self.offsets {
+            buf.put_u16(offset);
+        }
+
+        buf.put_u16(self.offsets.len() as u16);
+        buf.into()
     }
 
     /// Decode from the data layout, transform the input `data` to a single `Block`
     pub fn decode(data: &[u8]) -> Self {
-        unimplemented!()
+        let num_of_elements = (&data[data.len() - SIZE_OF_U16..]).get_u16() as usize;
+
+        let offsets_offset = data.len() - SIZE_OF_U16 - num_of_elements * SIZE_OF_U16;
+        let offsets_u8 = &data[offsets_offset..offsets_offset + num_of_elements * SIZE_OF_U16];
+        let offsets = offsets_u8
+            .chunks(SIZE_OF_U16)
+            .map(|mut x| x.get_u16())
+            .collect();
+
+        let data = data[..offsets_offset].to_vec();
+
+        Self { data, offsets }
     }
 }
