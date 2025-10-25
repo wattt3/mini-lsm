@@ -15,9 +15,11 @@
 #![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
 #![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
 
+use bytes::BufMut;
+
 use crate::key::{KeySlice, KeyVec};
 
-use super::Block;
+use super::{Block, SIZE_OF_U16};
 
 /// Builds a block.
 pub struct BlockBuilder {
@@ -34,14 +36,35 @@ pub struct BlockBuilder {
 impl BlockBuilder {
     /// Creates a new block builder.
     pub fn new(block_size: usize) -> Self {
-        unimplemented!()
+        Self {
+            offsets: Vec::new(),
+            data: Vec::new(),
+            block_size,
+            first_key: KeyVec::new(),
+        }
     }
 
     /// Adds a key-value pair to the block. Returns false when the block is full.
-    /// You may find the `bytes::BufMut` trait useful for manipulating binary data.
     #[must_use]
     pub fn add(&mut self, key: KeySlice, value: &[u8]) -> bool {
-        unimplemented!()
+        assert!(!key.is_empty(), "Key cannot be empty");
+
+        // Data Section + Offset Section + Extra(num_of_elements)
+        let current_size = self.data.len() + self.offsets.len() * SIZE_OF_U16 + SIZE_OF_U16;
+        // key_len + key + value_len + value + offset
+        let next_size = SIZE_OF_U16 + key.len() + SIZE_OF_U16 + value.len() + SIZE_OF_U16;
+
+        if current_size + next_size > self.block_size && !self.offsets.is_empty() {
+            return false;
+        }
+
+        self.offsets.push(self.data.len() as u16);
+        self.data.put_u16(key.len() as u16);
+        self.data.put_slice(key.raw_ref());
+        self.data.put_u16(value.len() as u16);
+        self.data.put_slice(value);
+
+        true
     }
 
     /// Check if there is no key-value pair in the block.
@@ -51,6 +74,12 @@ impl BlockBuilder {
 
     /// Finalize the block.
     pub fn build(self) -> Block {
-        unimplemented!()
+        if self.offsets.is_empty() {
+            panic!("Cannot build an empty block");
+        }
+        Block {
+            data: self.data,
+            offsets: self.offsets,
+        }
     }
 }
