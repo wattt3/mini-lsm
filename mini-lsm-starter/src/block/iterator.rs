@@ -57,7 +57,9 @@ impl BlockIterator {
 
     /// Creates a block iterator and seek to the first key that >= `key`.
     pub fn create_and_seek_to_key(block: Arc<Block>, key: KeySlice) -> Self {
-        unimplemented!()
+        let mut iter = Self::new(block);
+        iter.seek_to_key(key);
+        iter
     }
 
     /// Returns the key of the current entry.
@@ -75,7 +77,7 @@ impl BlockIterator {
     /// Returns true if the iterator is valid.
     /// Note: You may want to make use of `key`
     pub fn is_valid(&self) -> bool {
-        unimplemented!()
+        !self.key.is_empty()
     }
 
     /// Seeks to the first key in the block.
@@ -115,5 +117,26 @@ impl BlockIterator {
     /// Seek to the first key that >= `key`.
     /// Note: You should assume the key-value pairs in the block are sorted when being added by
     /// callers.
-    pub fn seek_to_key(&mut self, key: KeySlice) {}
+    pub fn seek_to_key(&mut self, key: KeySlice) {
+        let mut left = 0;
+        let mut right = self.block.offsets.len();
+
+        while left < right {
+            let mid = left + (right - left) / 2;
+            let offset = self.block.offsets[mid] as usize;
+            let mut entry = &self.block.data[offset..];
+            let key_len = entry.get_u16() as usize;
+            let mid_key = &entry[..key_len];
+
+            if mid_key == key.raw_ref() {
+                left = mid;
+                break;
+            } else if mid_key < key.raw_ref() {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+        self.seek(left);
+    }
 }
