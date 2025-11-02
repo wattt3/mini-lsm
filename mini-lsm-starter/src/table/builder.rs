@@ -73,9 +73,10 @@ impl SsTableBuilder {
     fn finish_block(&mut self) {
         let builder = std::mem::replace(&mut self.builder, BlockBuilder::new(self.block_size));
         let bytes = builder.build().encode();
+        let offset = self.data.len();
         self.data.extend(&bytes);
         self.meta.push(BlockMeta {
-            offset: self.data.len(),
+            offset,
             first_key: KeyBytes::from_bytes(std::mem::take(&mut self.first_key).into()),
             last_key: KeyBytes::from_bytes(std::mem::take(&mut self.last_key).into()),
         });

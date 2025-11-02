@@ -63,8 +63,26 @@ impl BlockMeta {
     }
 
     /// Decode block meta from a buffer.
-    pub fn decode_block_meta(buf: impl Buf) -> Vec<BlockMeta> {
-        unimplemented!()
+    pub fn decode_block_meta(mut buf: impl Buf) -> Vec<BlockMeta> {
+        let mut block_meta = Vec::new();
+
+        while buf.has_remaining() {
+            let offset = buf.get_u32() as usize;
+
+            let first_key_len = buf.get_u16() as usize;
+            let first_key = buf.copy_to_bytes(first_key_len);
+
+            let last_key_len = buf.get_u16() as usize;
+            let last_key = buf.copy_to_bytes(last_key_len);
+
+            block_meta.push(BlockMeta {
+                offset,
+                first_key: KeyBytes::from_bytes(first_key),
+                last_key: KeyBytes::from_bytes(last_key),
+            });
+        }
+
+        block_meta
     }
 }
 
@@ -128,7 +146,32 @@ impl SsTable {
 
     /// Open SSTable from a file.
     pub fn open(id: usize, block_cache: Option<Arc<BlockCache>>, file: FileObject) -> Result<Self> {
-        unimplemented!()
+        let file_size = file.size();
+
+        // Read the last 4 bytes to get the meta offset
+        let meta_offset_bytes = file.read(file_size - 4, 4)?;
+        let meta_offset = (&meta_offset_bytes[..]).get_u32() as u64;
+
+        // Read the block metadata
+        let meta_len = file_size - 4 - meta_offset;
+        let meta_bytes = file.read(meta_offset, meta_len)?;
+        let block_meta = BlockMeta::decode_block_meta(&meta_bytes[..]);
+
+        // Get first and last keys from block metadata
+        let first_key = block_meta.first().unwrap().first_key.clone();
+        let last_key = block_meta.last().unwrap().last_key.clone();
+
+        Ok(Self {
+            file,
+            block_meta,
+            block_meta_offset: meta_offset as usize,
+            id,
+            block_cache,
+            first_key,
+            last_key,
+            bloom: None,
+            max_ts: 0,
+        })
     }
 
     /// Create a mock SST with only first key + last key metadata
@@ -153,7 +196,18 @@ impl SsTable {
 
     /// Read a block from the disk.
     pub fn read_block(&self, block_idx: usize) -> Result<Arc<Block>> {
-        unimplemented!()
+        let offset = self.block_meta[block_idx].offset;
+        let end_offset = if block_idx + 1 < self.block_meta.len() {
+            self.block_meta[block_idx + 1].offset
+        } else {
+            self.block_meta_offset
+        };
+
+        let block_len = end_offset - offset;
+        let block_data = self.file.read(offset as u64, block_len as u64)?;
+        let block = Block::decode(block_data.as_ref());
+
+        Ok(Arc::new(block))
     }
 
     /// Read a block from disk, with block cache. (Day 4)
