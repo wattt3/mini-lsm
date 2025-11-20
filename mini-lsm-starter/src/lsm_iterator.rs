@@ -15,28 +15,43 @@
 #![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
 #![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
 
-use anyhow::{Result, bail};
-
+use crate::iterators::two_merge_iterator::TwoMergeIterator;
+use crate::table::SsTableIterator;
 use crate::{
-    iterators::{StorageIterator, merge_iterator::MergeIterator},
+    iterators::{merge_iterator::MergeIterator, StorageIterator},
     mem_table::MemTableIterator,
 };
+use anyhow::{bail, Result};
+use bytes::Bytes;
+use std::collections::Bound;
 
 /// Represents the internal type for an LSM iterator. This type will be changed across the course for multiple times.
-type LsmIteratorInner = MergeIterator<MemTableIterator>;
+type LsmIteratorInner =
+    TwoMergeIterator<MergeIterator<MemTableIterator>, MergeIterator<SsTableIterator>>;
+
+// type LsmIteratorInner = MergeIterator<MemTableIterator>;
 
 pub struct LsmIterator {
     inner: LsmIteratorInner,
+    end_bound: Bound<Bytes>,
 }
 
 impl LsmIterator {
-    pub(crate) fn new(iter: LsmIteratorInner) -> Result<Self> {
-        let mut lsm_iter = Self { inner: iter };
+    pub(crate) fn new(iter: LsmIteratorInner, end_bound: Bound<Bytes>) -> Result<Self> {
+        let mut lsm_iter = Self { inner: iter, end_bound };
         // Skip initial empty values (deleted keys)
         while lsm_iter.is_valid() && lsm_iter.value().is_empty() {
             lsm_iter.inner.next()?;
         }
         Ok(lsm_iter)
+    }
+
+    fn check_bound(&self, key: &[u8]) -> bool {
+        match &self.end_bound {
+            Bound::Unbounded => true,
+            Bound::Included(end_key) => key <= end_key.as_ref(),
+            Bound::Excluded(end_key) => key < end_key.as_ref(),
+        }
     }
 }
 
@@ -44,7 +59,7 @@ impl StorageIterator for LsmIterator {
     type KeyType<'a> = &'a [u8];
 
     fn is_valid(&self) -> bool {
-        self.inner.is_valid()
+        self.inner.is_valid() && self.check_bound(self.key())
     }
 
     fn key(&self) -> &[u8] {
